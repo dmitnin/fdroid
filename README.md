@@ -47,7 +47,15 @@ prints these values per app after each run.
   (Android would refuse the new APK as a signature mismatch; users must uninstall +
   reinstall).
 
-Committed: `publish.sh`, `install_deps.sh`, `.gitignore`, `README.md`.
+Backup is automated by **`signing-backup.sh`**: `./signing-backup.sh backup` encrypts both
+files (AES256, passphrase-protected) into `signing-backup.tar.gz.gpg`, which *is* committed
+and rides along in this repo — the only secret left outside is the passphrase (store it in a
+password manager). `./signing-backup.sh restore` decrypts them back into place on a fresh
+clone. Re-run `backup` whenever the keystore changes (i.e. after onboarding a **new** app;
+routine version bumps don't change it).
+
+Committed: `publish.sh`, `install_deps.sh`, `signing-backup.sh`, `signing-backup.tar.gz.gpg`,
+`.gitignore`, `README.md`.
 
 ## Notes
 

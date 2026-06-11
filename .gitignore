@@ -1,0 +1,14 @@
+# Secrets — back these up OUTSIDE git, never commit
+secrets.env
+keystore.p12
+keystore-apps.jks
+config.yml
+
+# Generated / transient — these live in the GitHub Release, not in git
+incoming/
+out/
+repo/
+tmp/
+unsigned/
+archive/
+.fdroid.*

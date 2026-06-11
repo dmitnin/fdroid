@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 #
-# publish.sh — sign incoming APKs and publish each as a per-version GitHub Release
-# for consumption by Obtainium.
+# publish.sh — sign incoming APKs and publish each as a per-version GitHub Release.
 #
 # App projects only need to:
 #   ./gradlew :app:assembleRelease
@@ -9,9 +8,10 @@
 #   ~/prj/fdroid/publish.sh
 #
 # Each APK is signed with a stable per-package key (alias = package name) and
-# uploaded to a release tagged "<slug>-v<versionName>-<versionCode>". Obtainium
-# watches this repo's releases (filtered per app) and follows GitHub's download
-# redirect, so APKs stay in Releases with no git bloat and no signed index.
+# uploaded to a release tagged "<slug>-v<versionName>-<versionCode>". The release
+# event triggers .github/workflows/pages.yml, which rebuilds the signed F-Droid
+# index from these Release APKs and serves it on GitHub Pages — so binaries stay
+# in Releases (no git bloat) and the F-Droid client reads the Pages index.
 #
 set -euo pipefail
 
@@ -88,16 +88,13 @@ if [ ${#published[@]} -eq 0 ]; then
   exit 0
 fi
 
-# ---- report Obtainium config ------------------------------------------------
+# ---- report -----------------------------------------------------------------
 echo
 echo "================================================================"
-echo "Published. In Obtainium, Add App (one source per app):"
-while IFS='|' read -r slug pkg; do
-  [ -n "$slug" ] || continue
-  echo
-  echo "  $pkg"
-  echo "    Source URL                          : https://github.com/${GH_REPO}"
-  echo "    Filter Releases by Regular Expression: ^${slug}-v"
-  echo "    Filter APKs by Regular Expression    : ${pkg//./\\.}_"
-done < <(printf '%s\n' "${published[@]}" | sort -u)
+echo "Published ${#published[@]} APK(s) to GitHub Releases."
+echo "The Pages workflow will rebuild the F-Droid index automatically"
+echo "(watch: gh run watch \$(gh run list --workflow=pages.yml -L1 --json databaseId -q '.[0].databaseId'))."
+echo
+echo "F-Droid client -> Settings -> Repositories -> + :"
+echo "  https://dmitnin.github.io/fdroid/repo?fingerprint=252ca1154b9f20c4af70ba20e59dec8236b53f6a7694d85ca771592ab7d978d6"
 echo "================================================================"

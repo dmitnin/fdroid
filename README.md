@@ -1,15 +1,25 @@
-# dmitnin app repo (Obtainium)
+# dmitnin app repo (F-Droid)
 
-Personal Android app distribution. Each app version is published as a **signed APK
-attached to a per-version GitHub Release** on this repo. Apps are installed/updated on
-the phone with [Obtainium](https://github.com/ImranR98/Obtainium), which reads this repo's
-releases via the GitHub API (and follows GitHub's download redirect, which the F-Droid
-client does not — that's why this is Obtainium, not an F-Droid index).
+Personal Android app distribution. Each app version is built as an **unsigned** APK
+by its own project, then signed and published here. The signed APKs live as **GitHub
+Release assets** (so they never bloat git), and a GitHub Actions workflow builds a
+**signed F-Droid index** from them and serves it on **GitHub Pages**. The phone runs
+the ordinary **F-Droid client**, pointed at this repo's Pages index.
 
 ## How it works
 
-This repo owns the signing keys and publishing. App projects stay dumb — they only build
-an **unsigned** release APK and drop it here.
+Two stages, both already wired up:
+
+1. **Publish** (`publish.sh`, run locally): reads each incoming APK's package +
+   version, signs it with a **stable per-package key** (alias = package name, which
+   is what lets the client offer in-app updates), and uploads it to a GitHub Release
+   tagged `<slug>-v<versionName>-<versionCode>`.
+2. **Index** (`.github/workflows/pages.yml`, runs in CI): on each release it
+   downloads every Release APK, runs `fdroid update` to build + **sign the index**
+   with the repo key, and deploys `repo/` to GitHub Pages — no APKs committed to git.
+
+The index is signed by a *separate* key (`keystore.p12`, alias `index`), independent
+of the per-app keys in `keystore-apps.jks`.
 
 ### Publishing an app (the whole contract)
 
@@ -20,84 +30,57 @@ cp app/build/outputs/apk/release/app-release-unsigned.apk ~/prj/fdroid/incoming/
 ~/prj/fdroid/publish.sh
 ```
 
-`publish.sh` reads each APK's package + version, signs it with a **stable per-package key**
-(alias = package name, auto-created on first sight — this is what lets Obtainium offer
-in-app updates), and creates a GitHub Release tagged `<slug>-v<versionName>-<versionCode>`
-with the signed APK attached. It then prints the exact Obtainium config.
-
 To release an **update**: bump `versionCode` (and usually `versionName`) in the app's
-`build.gradle`, rebuild, and run the same three steps — a new release tag is cut and
-Obtainium detects it.
+`build.gradle`, rebuild, and run the same three steps. `publish.sh` cuts a new release
+tag, which triggers the Pages workflow to rebuild the index; the F-Droid client picks
+up the new version on its next refresh.
 
-### Installing on a device (Obtainium)
+### Installing on a device (F-Droid client)
 
-Install Obtainium (from its GitHub releases / F-Droid / IzzyOnDroid), then **Add App** with:
+Install F-Droid, then **Settings → Repositories → +** and add:
 
-- **Source URL:** `https://github.com/dmitnin/fdroid`
-- **Filter Releases by Regular Expression:** `^<slug>-v`   (e.g. `^gallery-v`)
-- **Filter APKs by Regular Expression:** `<package>_`       (e.g. `com\.dmitnin\.gallery_`)
+```
+https://dmitnin.github.io/fdroid/repo?fingerprint=252ca1154b9f20c4af70ba20e59dec8236b53f6a7694d85ca771592ab7d978d6
+```
 
-The release filter is what keeps multiple apps in this one repo separate. `publish.sh`
-prints these values per app after each run.
+Every app published here appears under that one repo. (The Pages workflow's run
+summary reprints this URL after each build.)
 
-## Alternative: the F-Droid client (via GitHub Pages)
-
-The F-Droid *client* can't consume the Releases directly — it refuses HTTP 302
-redirects, and every `github.com/.../releases/download/...` URL redirects to a
-CDN. The workaround is to serve a real, signed F-Droid index from **GitHub Pages**
-without bloating git: `.github/workflows/pages.yml` downloads the already-signed
-APKs from Releases, runs `fdroid update` to build + sign the index, and deploys
-`repo/` as a **Pages artifact** (nothing is committed — history stays clean).
-
-This reuses everything above: `publish.sh` still owns the APKs in Releases; a
-release event just triggers the workflow to rebuild the index. The index is signed
-by a *separate* key (`keystore.p12`, alias `index`) — independent of the per-app
-keys in `keystore-apps.jks`.
-
-### One-time setup
+### One-time CI setup (already done — kept here for a fresh clone)
 
 1. **Settings → Pages → Build and deployment → Source: GitHub Actions.**
-2. Set the two CI secrets from your local `keystore.p12` / `config.yml`:
+2. Set the repo-index signing secrets from your local files:
 
    ```bash
    gh secret set FDROID_KEYSTORE_P12_BASE64 < <(base64 -w0 keystore.p12)
    gh secret set FDROID_KEYSTORE_PASS --body "$(sed -n 's/^keystorepass: "\(.*\)"/\1/p' config.yml)"
    ```
 
-3. Trigger once: `gh workflow run "Build & deploy F-Droid repo to Pages"`.
-
-### Installing on a device (F-Droid client)
-
-Add the repo (Settings → Repositories → +). The workflow's run summary prints the
-exact URL incl. fingerprint; it is:
-
-```
-https://dmitnin.github.io/fdroid/repo?fingerprint=252ca1154b9f20c4af70ba20e59dec8236b53f6a7694d85ca771592ab7d978d6
-```
-
-Losing `keystore.p12` only changes this fingerprint (users must re-add the repo) —
-it does **not** break app updates the way losing `keystore-apps.jks` does.
-
 ## ⚠️ Back these up (gitignored, never committed)
 
-- `secrets.env` — the app keystore password
-- `keystore-apps.jks` — **app** signing keys. Losing this breaks updates for **every** app
-  (Android would refuse the new APK as a signature mismatch; users must uninstall +
+- `secrets.env` — the app keystore password.
+- `keystore-apps.jks` — **app** signing keys. Losing this breaks updates for **every**
+  app (Android refuses the new APK as a signature mismatch; users must uninstall +
   reinstall).
+- `keystore.p12` / `config.yml` — the **index** signing key + its password. Lower
+  stakes: losing it only changes the repo fingerprint, forcing users to re-add the
+  repo. Also mirrored as the `FDROID_KEYSTORE_*` CI secrets.
 
-Backup is automated by **`signing-backup.sh`**: `./signing-backup.sh backup` encrypts both
-files (AES256, passphrase-protected) into `signing-backup.tar.gz.gpg`, which *is* committed
-and rides along in this repo — the only secret left outside is the passphrase (store it in a
-password manager). `./signing-backup.sh restore` decrypts them back into place on a fresh
-clone. Re-run `backup` whenever the keystore changes (i.e. after onboarding a **new** app;
-routine version bumps don't change it).
+Backup of the **app** secrets is automated by **`signing-backup.sh`**:
+`./signing-backup.sh backup` encrypts `secrets.env` + `keystore-apps.jks` (AES256,
+passphrase-protected) into `signing-backup.tar.gz.gpg`, which *is* committed — the only
+secret left outside is the passphrase (store it in a password manager).
+`./signing-backup.sh restore` decrypts them back on a fresh clone. Re-run `backup`
+after onboarding a **new** app; routine version bumps don't change the keystore.
 
-Committed: `publish.sh`, `install_deps.sh`, `signing-backup.sh`, `signing-backup.tar.gz.gpg`,
-`.gitignore`, `README.md`.
+Committed: `publish.sh`, `install_deps.sh`, `signing-backup.sh`,
+`signing-backup.tar.gz.gpg`, `.github/workflows/pages.yml`, `.gitignore`, `README.md`.
 
 ## Notes
 
-- The earlier F-Droid index files (`config.yml`, `keystore.p12`, `metadata/`, the `repo`
-  release) are unused in the Obtainium model and can be removed.
+- Why not point the F-Droid client straight at the GitHub Releases? The client refuses
+  HTTP 302 redirects, and every `releases/download/...` URL redirects to a CDN. Serving
+  a real signed index from Pages (200, no redirect) is the workaround — that's the whole
+  reason the Pages stage exists.
 - The Google "developer verification" requirement is enforced at install time by the OS,
-  independent of the installer — Obtainium doesn't change that. `adb install` stays exempt.
+  independent of the installer. `adb install` stays exempt.

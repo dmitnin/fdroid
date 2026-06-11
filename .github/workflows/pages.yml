@@ -13,6 +13,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    paths: ['.github/workflows/**']  # real index updates come from release events
   release:
     types: [published, released, edited]
 

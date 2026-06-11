@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
 #
-# install_deps.sh — install the system packages the F-Droid repo tooling needs:
-#   - fdroidserver  (builds/signs the repo index)
-#   - gh            (GitHub CLI, uploads release assets)
+# install_deps.sh — install the host packages the publish tooling needs:
+#   - gh        (GitHub CLI — uploads signed APKs as Release assets)
+#   - gnupg     (signing-backup.sh — encrypt/decrypt the keystore backup)
+#   - openssl   (publish.sh bootstrap — generates the app keystore password)
+#   - a JDK     (keytool — creates the per-app signing keys)
+#
+# The F-Droid index itself is built in CI (fdroidserver runs in the GitHub Actions
+# workflow, not here), so it is intentionally NOT installed locally. APK signing
+# also needs the Android SDK build-tools (aapt2/zipalign/apksigner); those come
+# from your Android SDK ($ANDROID_HOME), not apt.
 #
 # Run with sudo privileges available (it calls sudo itself). Debian/Ubuntu only.
 #
@@ -16,8 +23,8 @@ fi
 echo "==> Updating package lists"
 sudo apt-get update
 
-echo "==> Installing fdroidserver"
-sudo apt-get install -y fdroidserver
+echo "==> Installing openssl, gnupg, JDK (keytool)"
+sudo apt-get install -y openssl gnupg default-jdk-headless
 
 echo "==> Installing GitHub CLI (gh)"
 if apt-cache show gh >/dev/null 2>&1; then
@@ -38,9 +45,13 @@ fi
 
 echo
 echo "==> Versions"
-fdroid --version || echo "WARNING: fdroid not on PATH"
 gh --version | head -1 || echo "WARNING: gh not on PATH"
+command -v keytool >/dev/null 2>&1 && echo "keytool: present" || echo "WARNING: keytool not on PATH"
+gpg --version | head -1 || echo "WARNING: gpg not on PATH"
 
+echo
+echo "Heads up: APK signing needs the Android SDK build-tools (aapt2/zipalign/"
+echo "apksigner). Ensure ANDROID_HOME points at your SDK (default ~/Android/Sdk)."
 echo
 echo "Next: authenticate the GitHub CLI (interactive, opens a browser):"
 echo "    gh auth login        # GitHub.com -> HTTPS -> login with browser"

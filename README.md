@@ -16,10 +16,10 @@ Two stages:
    in-app updates instead of treating a new version as a different app), and uploads it
    to a GitHub Release tagged `<slug>-v<versionName>-<versionCode>`. The input APK is read
    only; signing happens in an auto-removed temp dir, so nothing accumulates locally.
-2. **Index** — `.github/workflows/pages.yml`, runs in CI on every published release. It
-   downloads every Release APK, runs `fdroid update` to build and **sign the index** with
-   the repository's index key, and deploys the result to GitHub Pages. No APKs are ever
-   committed to git.
+2. **Index** — [`.github/workflows/pages.yml`](https://github.com/dmitnin/fdroid/actions/workflows/pages.yml),
+   runs in CI on every published release. It downloads every Release APK, runs
+   `fdroid update` to build and **sign the index** with the repository's index key, and
+   deploys the result to GitHub Pages. No APKs are ever committed to git.
 
 Two independent keys are involved:
 
@@ -43,12 +43,34 @@ workflow run makes it concrete:
 4. **Upload + deploy** — `actions/upload-pages-artifact` tars `repo/` into a Pages artifact,
    and `actions/deploy-pages` publishes it to GitHub's Pages CDN at the repo URL.
 
-So the APK bytes live in exactly two places, **neither of which is git history**: GitHub
-**Releases** (durable upload assets) and the **Pages deployment** (the served copy). The
+So the APK bytes live in exactly two places, **neither of which is git history**:
+[GitHub **Releases**](https://github.com/dmitnin/fdroid/releases) (durable upload assets)
+and the **Pages deployment** (the served copy). The
 Pages site is disposable — rebuilt from scratch on every release event, re-downloading from
 Releases each time. There's no `gh-pages` branch, no commit, no accumulating git objects.
 Releases are the durable source of truth; Pages is a regenerated, redirect-free `200` cache
 in front of them (the whole point of [the Releases-*and*-Pages split](#why-releases-and-pages-not-releases-alone)).
+
+### Background: how GitHub Pages hosts this
+
+GitHub Pages is **static hosting enabled per repository** (Settings → Pages). Your whole
+account shares **one** domain, `dmitnin.github.io`, carved into paths by repo *name*:
+
+| Repo | Path it serves | Pages source |
+|------|----------------|--------------|
+| `dmitnin/dmitnin.github.io` (name == domain) | the root `https://dmitnin.github.io/` | deploy-from-branch |
+| `dmitnin/fdroid` (any other name) | the subfolder `https://dmitnin.github.io/fdroid/` | GitHub Actions |
+
+So the domain is shared, but each path is served by a **different, independent repo** —
+`dmitnin.github.io` (a personal site) and this repo are unrelated; they just sit on the same
+domain. Two ways a repo can feed its Pages site:
+
+- **Deploy from a branch** — Pages serves files committed to a branch; they live in git and
+  show up in the Code tab. Simple, but committed binaries bloat git forever.
+- **GitHub Actions** (what this repo uses) — a workflow builds the site and uploads it as an
+  **artifact** that Pages serves; *nothing is committed to a branch*. That's why the index
+  and APKs appear in no Code tab — they're the ephemeral deploy artifact, browsable only at
+  the live `/repo/` URL or downloadable as the `github-pages` tarball on the workflow run.
 
 ### Installing on a device
 

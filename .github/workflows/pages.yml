@@ -82,6 +82,9 @@ jobs:
       - name: Build & sign the index
         run: |
           fdroid update --create-metadata --pretty --use-date-from-apk
+          # fdroidserver hardcodes the landing-page QR alt/title as "QR: test"
+          # (index.py); rewrite it to the repo name on the generated page.
+          sed -i 's/QR: test/QR: Dmitnin F-Droid/g' repo/index.html
 
       - name: Stage Pages site
         run: |

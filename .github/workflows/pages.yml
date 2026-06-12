@@ -3,7 +3,7 @@ name: Build & deploy F-Droid repo to Pages
 # Rebuilds the signed F-Droid index from the APKs attached to this repo's
 # Releases and deploys it to GitHub Pages as an artifact. Nothing is committed
 # to git — the APKs live in Releases, the served index lives in an ephemeral
-# Pages artifact. This is the F-Droid-client counterpart to publish.sh/Obtainium.
+# Pages artifact. This is the CI half of the pipeline; publish.sh is the local half.
 #
 # Required repository secrets (set once, see README):
 #   FDROID_KEYSTORE_P12_BASE64  base64 of keystore.p12 (the repo INDEX key)

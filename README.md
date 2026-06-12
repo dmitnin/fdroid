@@ -1,89 +1,159 @@
-# dmitnin app repo (F-Droid)
+# Dmitnin F-Droid
 
-Personal Android app distribution. Each app version is built as an **unsigned** APK
-by its own project, then signed and published here. The signed APKs live as **GitHub
-Release assets** (so they never bloat git), and a GitHub Actions workflow builds a
-**signed F-Droid index** from them and serves it on **GitHub Pages**. The phone runs
-the ordinary **F-Droid client**, pointed at this repo's Pages index.
+Personal Android app distribution as a self-hosted F-Droid repository. Each app is built
+as an **unsigned** APK by its own project, then signed and published here. Signed APKs
+live as **GitHub Release assets** (so they never bloat git); a GitHub Actions workflow
+builds a **signed F-Droid index** from them and serves it on **GitHub Pages**. Phones use
+the ordinary **F-Droid client**, pointed at the Pages index.
 
 ## How it works
 
-Two stages, both already wired up:
+Two stages:
 
-1. **Publish** (`publish.sh`, run locally): reads each incoming APK's package +
-   version, signs it with a **stable per-package key** (alias = package name, which
-   is what lets the client offer in-app updates), and uploads it to a GitHub Release
-   tagged `<slug>-v<versionName>-<versionCode>`.
-2. **Index** (`.github/workflows/pages.yml`, runs in CI): on each release it
-   downloads every Release APK, runs `fdroid update` to build + **sign the index**
-   with the repo key, and deploys `repo/` to GitHub Pages — no APKs committed to git.
+1. **Publish** — `./publish.sh`, run locally. For each APK in `incoming/` it reads the
+   package name + version, signs it with a **stable per-package key** (alias = package
+   name — that stable identity is what lets the F-Droid client offer in-app updates
+   instead of treating a new version as a different app), and uploads it to a GitHub
+   Release tagged `<slug>-v<versionName>-<versionCode>`. Signing happens in an
+   auto-removed temp dir, so nothing accumulates locally.
+2. **Index** — `.github/workflows/pages.yml`, runs in CI on every published release. It
+   downloads every Release APK, runs `fdroid update` to build and **sign the index** with
+   the repository's index key, and deploys the result to GitHub Pages. No APKs are ever
+   committed to git.
 
-The index is signed by a *separate* key (`secrets/keystore.p12`, alias `index`),
-independent of the per-app keys in `secrets/keystore-apps.jks`.
+Two independent keys are involved:
 
-### Publishing an app (the whole contract)
+- **Index key** (`secrets/keystore.p12`, alias `index`) — signs the repository index.
+  Mirrored into CI as the `FDROID_KEYSTORE_*` secrets.
+- **App keys** (`secrets/keystore-apps.jks`) — one stable key per app package, signs the
+  APKs themselves.
 
-```bash
-cd /path/to/the/app            # e.g. ~/prj/kartonka/apps/gallery.android
-./gradlew :app:assembleRelease # produces app-release-unsigned.apk
-cp app/build/outputs/apk/release/app-release-unsigned.apk ~/prj/fdroid/incoming/
-~/prj/fdroid/publish.sh
-```
+### How the APKs reach Pages without bloating git
 
-To release an **update**: bump `versionCode` (and usually `versionName`) in the app's
-`build.gradle`, rebuild, and run the same three steps. `publish.sh` cuts a new release
-tag, which triggers the Pages workflow to rebuild the index; the F-Droid client picks
-up the new version on its next refresh.
+The repo's Pages source is set to **GitHub Actions**, not "Deploy from a branch" — so Pages
+serves an **uploaded artifact**, never a git branch. Following the APK bytes through one
+workflow run makes it concrete:
 
-### Installing on a device (F-Droid client)
+1. **Checkout** pulls only the git contents — scripts, `metadata/`, the workflow. No APKs
+   (they were never committed).
+2. **Download from Releases** — `gh release download` fetches the signed APKs into a `repo/`
+   directory on the CI runner's disk. Ephemeral scratch; nothing is `git add`ed.
+3. **Build index** — `fdroid update` writes the signed index (`index-v2.json`, `entry.jar`,
+   icons…) alongside those APKs in `repo/`.
+4. **Upload + deploy** — `actions/upload-pages-artifact` tars `repo/` into a Pages artifact,
+   and `actions/deploy-pages` publishes it to GitHub's Pages CDN at the repo URL.
 
-Install F-Droid, then **Settings → Repositories → +** and add:
+So the APK bytes live in exactly two places, **neither of which is git history**: GitHub
+**Releases** (durable upload assets) and the **Pages deployment** (the served copy). The
+Pages site is disposable — rebuilt from scratch on every release event, re-downloading from
+Releases each time. There's no `gh-pages` branch, no commit, no accumulating git objects.
+Releases are the durable source of truth; Pages is a regenerated, redirect-free `200` cache
+in front of them (the whole point of [the Releases-*and*-Pages split](#why-releases-and-pages-not-releases-alone)).
 
-```
-https://dmitnin.github.io/fdroid/repo?fingerprint=252ca1154b9f20c4af70ba20e59dec8236b53f6a7694d85ca771592ab7d978d6
-```
+### Installing on a device
 
-Every app published here appears under that one repo. (The Pages workflow's run
-summary reprints this URL after each build.)
+Add this repo to the F-Droid client by either:
 
-### One-time CI setup (already done — kept here for a fresh clone)
+- **On the phone** — open
+  **[the repo link](https://dmitnin.github.io/fdroid/repo?fingerprint=252ca1154b9f20c4af70ba20e59dec8236b53f6a7694d85ca771592ab7d978d6)**;
+  the F-Droid landing page shows a **QR code** to scan straight into the client, or
+- **Manually** — **Settings → Repositories → +** and paste the URL:
 
-1. **Settings → Pages → Build and deployment → Source: GitHub Actions.**
-2. Set the repo-index signing secrets from your local files:
+  ```
+  https://dmitnin.github.io/fdroid/repo?fingerprint=252ca1154b9f20c4af70ba20e59dec8236b53f6a7694d85ca771592ab7d978d6
+  ```
+
+Every app published here appears under that one repo. The Pages workflow reprints this
+URL in its run summary after each build.
+
+### Why Releases *and* Pages, not Releases alone?
+
+The F-Droid client refuses HTTP 302 redirects, and every `releases/download/...` URL
+redirects to a CDN — so the client can't read APKs straight from Releases. Serving a real
+signed index from Pages (HTTP 200, no redirect) is the workaround; that's the entire
+reason the Pages stage exists.
+
+(Separately: Google's "developer verification" is enforced at install time by the OS,
+independent of the installer. `adb install` stays exempt.)
+
+## Setup (fresh checkout)
+
+1. **Restore the secrets.** They ship encrypted in `secrets.tar.gz.gpg`:
 
    ```bash
-   gh secret set FDROID_KEYSTORE_P12_BASE64 < <(base64 -w0 secrets/keystore.p12)
-   gh secret set FDROID_KEYSTORE_PASS --body "$(sed -n 's/^keystorepass: "\(.*\)"/\1/p' secrets/config.yml)"
+   ./secrets.sh restore        # decrypts into secrets/ (asks for the passphrase)
    ```
 
-## ⚠️ Back these up (gitignored, never committed)
+   The passphrase lives only in your password manager — it is the one secret kept outside
+   this repo.
 
-The plaintext secrets live in **`secrets/`** (the whole directory is gitignored except
-the encrypted backup blob):
+2. **Install host tooling:**
 
-- `secrets/secrets.env` — the app keystore password.
-- `secrets/keystore-apps.jks` — **app** signing keys. Losing this breaks updates for
-  **every** app (Android refuses the new APK as a signature mismatch; users must
-  uninstall + reinstall).
-- `secrets/keystore.p12` / `secrets/config.yml` — the **index** signing key + its
-  password. Lower stakes: losing it only changes the repo fingerprint, forcing users to
-  re-add the repo. Also mirrored as the `FDROID_KEYSTORE_*` CI secrets.
+   ```bash
+   ./install_deps.sh           # gh, gnupg, openssl, a JDK (keytool)
+   gh auth login
+   ```
 
-Backup of the whole `secrets/` directory is automated by **`secrets.sh`**:
-`./secrets.sh backup` encrypts everything in `secrets/` (AES256, passphrase-protected)
-into `secrets.tar.gz.gpg` at the repo root, which *is* committed — the only secret left
-outside is the passphrase (store it in a password manager). `./secrets.sh restore`
-decrypts it back on a fresh clone. Re-run `backup` after onboarding a **new** app;
-routine version bumps don't change the keystore.
+   APK signing also needs the Android SDK build-tools (`aapt2`/`zipalign`/`apksigner`);
+   point `ANDROID_HOME` at your SDK.
 
-Committed: `publish.sh`, `install_deps.sh`, `secrets.sh`, `secrets.tar.gz.gpg`,
-`.github/workflows/pages.yml`, `.gitignore`, `README.md`.
+3. **Configure CI** — only when wiring up the GitHub repo itself:
 
-## Notes
+   - **Settings → Pages → Build and deployment → Source: GitHub Actions.**
+   - Seed the index-signing secrets:
 
-- Why not point the F-Droid client straight at the GitHub Releases? The client refuses
-  HTTP 302 redirects, and every `releases/download/...` URL redirects to a CDN. Serving
-  a real signed index from Pages (200, no redirect) is the workaround — that's the whole
-  reason the Pages stage exists.
-- The Google "developer verification" requirement is enforced at install time by the OS,
-  independent of the installer. `adb install` stays exempt.
+     ```bash
+     gh secret set FDROID_KEYSTORE_P12_BASE64 < <(base64 -w0 secrets/keystore.p12)
+     gh secret set FDROID_KEYSTORE_PASS --body "$(sed -n 's/^keystorepass: "\(.*\)"/\1/p' secrets/config.yml)"
+     ```
+
+   > GitHub Actions secrets are **write-only** — once set you can never read them back. The
+   > encrypted `secrets.tar.gz.gpg` is therefore the only retrievable copy of the index
+   > key; guard the passphrase accordingly.
+
+### What's in `secrets/`
+
+The whole directory is gitignored; `./secrets.sh backup` re-encrypts it into the committed
+`secrets.tar.gz.gpg`.
+
+- `secrets/keystore-apps.jks` — the **app** signing keys. Losing this is unrecoverable:
+  Android rejects updates signed by a different key, forcing users to uninstall +
+  reinstall every affected app.
+- `secrets/secrets.env` — the password protecting `keystore-apps.jks`.
+- `secrets/keystore.p12` + `secrets/config.yml` — the **index** key plus its config and
+  password. Lower stakes: replacing it only changes the repo fingerprint, forcing users to
+  re-add the repo.
+
+## Publishing
+
+The contract for any app, whichever project it comes from:
+
+```bash
+# in the app's own project:
+./gradlew :app:assembleRelease          # produces app-release-unsigned.apk
+
+# then, from this repo:
+cp /path/to/app-release-unsigned.apk incoming/
+./publish.sh
+```
+
+`publish.sh` signs everything in `incoming/`, cuts the Release(s), and consumes each APK
+it signs (so `incoming/` is left empty). The new release triggers the Pages workflow to
+rebuild the index; the F-Droid client picks up the change on its next refresh.
+
+**Updating an existing app:** bump `versionCode` (and usually `versionName`) in the app's
+`build.gradle`, rebuild, and run the same two steps. The app already has a key in
+`keystore-apps.jks`, so that key is reused — the keystore does **not** change.
+
+**Onboarding a new app:** same two steps. On the first publish of a package it has never
+seen, `publish.sh` generates a fresh per-package key (alias = the package name) in
+`keystore-apps.jks`. Optionally add `metadata/<package>.yml` to curate the listing (name,
+summary, links); without it, CI auto-stubs minimal metadata from the APK on each build.
+
+### What can go stale after publishing
+
+- **`secrets.tar.gz.gpg`** — only when `keystore-apps.jks` changes, i.e. after
+  **onboarding a new app**. Re-run `./secrets.sh backup` and commit the refreshed blob.
+  Routine version bumps never touch the keystore, so they need no re-backup.
+- Editing `secrets/config.yml` (e.g. the repo name) also drifts the blob; re-run `backup`
+  if you want it current. `config.yml` is reconstructable, so this is optional.

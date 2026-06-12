@@ -80,7 +80,7 @@ for apk in incoming/*.apk; do
     echo "[publish] creating release '$tag'"
     gh release create "$tag" --repo "$GH_REPO" \
       --title "${slug} ${vn} (${vc})" \
-      --notes "Auto-published ${pkg} versionCode ${vc}. Install/update via Obtainium." \
+      --notes "Auto-published ${pkg} versionCode ${vc}. Install/update via the F-Droid repo." \
       "$signed"
   fi
   published+=("${slug}|${pkg}")

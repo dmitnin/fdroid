@@ -4,7 +4,6 @@ secrets/
 
 # Generated / transient — these live in the GitHub Release, not in git.
 # (publish.sh's scratch dir is an auto-removed mktemp, so it's not listed here.)
-incoming/
 repo/
 unsigned/
 archive/

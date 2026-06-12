@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #
-# publish.sh — sign incoming APKs and publish each as a per-version GitHub Release.
+# publish.sh — sign one or more APKs and publish each as a per-version GitHub Release.
 #
-# App projects only need to:
-#   ./gradlew :app:assembleRelease
-#   cp .../app-release-unsigned.apk ~/prj/fdroid/incoming/
-#   ~/prj/fdroid/publish.sh
+#   ./publish.sh <app.apk> [more.apk ...]
+#
+# Point it straight at a freshly built APK, e.g.
+#   ./publish.sh ../myapp/app/build/outputs/apk/release/app-release-unsigned.apk
 #
 # Each APK is signed with a stable per-package key (alias = package name) and
 # uploaded to a release tagged "<slug>-v<versionName>-<versionCode>". The release
@@ -13,9 +13,24 @@
 # index from these Release APKs and serves it on GitHub Pages — so binaries stay
 # in Releases (no git bloat) and the F-Droid client reads the Pages index.
 #
+# Input APKs are treated as read-only: each is signed into a temp dir, never
+# modified or deleted.
+#
 set -euo pipefail
 
 GH_REPO="dmitnin/fdroid"
+
+if [ "$#" -eq 0 ]; then
+  echo "usage: $(basename "$0") <app.apk> [more.apk ...]" >&2
+  exit 2
+fi
+# Resolve APK paths against the caller's cwd BEFORE we cd into the repo, so
+# relative paths work no matter where publish.sh is invoked from.
+apks=()
+for a in "$@"; do
+  [ -f "$a" ] || { echo "ERROR: APK not found: $a" >&2; exit 1; }
+  apks+=("$(readlink -f "$a")")
+done
 
 cd "$(dirname "$(readlink -f "$0")")"
 
@@ -37,15 +52,13 @@ fi
 # shellcheck disable=SC1091
 source ./secrets/secrets.env
 
-mkdir -p incoming
 # Scratch space for aligned/signed APKs — created per run, auto-removed on exit.
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 # ---- ingest, sign, publish --------------------------------------------------
-shopt -s nullglob
 published=()
-for apk in incoming/*.apk; do
+for apk in "${apks[@]}"; do
   info="$("$AAPT2" dump badging "$apk")"
   pkg="$(sed -n "s/.*package: name='\([^']*\)'.*/\1/p" <<<"$info")"
   vc="$(sed -n  "s/.*versionCode='\([^']*\)'.*/\1/p" <<<"$info")"
@@ -70,7 +83,7 @@ for apk in incoming/*.apk; do
   "$APKSIGNER" sign --ks secrets/keystore-apps.jks --ks-key-alias "$pkg" \
     --ks-pass "pass:$APP_KS_PASS" --key-pass "pass:$APP_KS_PASS" \
     --v4-signing-enabled false --out "$signed" "$aligned"
-  rm -f "$aligned" "$apk"
+  rm -f "$aligned"
   echo "[sign]   signed -> $signed"
 
   if gh release view "$tag" --repo "$GH_REPO" >/dev/null 2>&1; then
@@ -85,12 +98,6 @@ for apk in incoming/*.apk; do
   fi
   published+=("${slug}|${pkg}")
 done
-shopt -u nullglob
-
-if [ ${#published[@]} -eq 0 ]; then
-  echo "Nothing in incoming/ to publish."
-  exit 0
-fi
 
 # ---- report -----------------------------------------------------------------
 echo

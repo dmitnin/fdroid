@@ -10,12 +10,12 @@ the ordinary **F-Droid client**, pointed at the Pages index.
 
 Two stages:
 
-1. **Publish** — `./publish.sh`, run locally. For each APK in `incoming/` it reads the
-   package name + version, signs it with a **stable per-package key** (alias = package
-   name — that stable identity is what lets the F-Droid client offer in-app updates
-   instead of treating a new version as a different app), and uploads it to a GitHub
-   Release tagged `<slug>-v<versionName>-<versionCode>`. Signing happens in an
-   auto-removed temp dir, so nothing accumulates locally.
+1. **Publish** — `./publish.sh <app.apk> …`, run locally. For each APK path you pass it,
+   it reads the package name + version, signs it with a **stable per-package key**
+   (alias = package name — that stable identity is what lets the F-Droid client offer
+   in-app updates instead of treating a new version as a different app), and uploads it
+   to a GitHub Release tagged `<slug>-v<versionName>-<versionCode>`. The input APK is read
+   only; signing happens in an auto-removed temp dir, so nothing accumulates locally.
 2. **Index** — `.github/workflows/pages.yml`, runs in CI on every published release. It
    downloads every Release APK, runs `fdroid update` to build and **sign the index** with
    the repository's index key, and deploys the result to GitHub Pages. No APKs are ever
@@ -126,20 +126,20 @@ The whole directory is gitignored; `./secrets.sh backup` re-encrypts it into the
 
 ## Publishing
 
-The contract for any app, whichever project it comes from:
+The contract for any app, whichever project it comes from — build the unsigned APK, then
+point `publish.sh` at it:
 
 ```bash
 # in the app's own project:
 ./gradlew :app:assembleRelease          # produces app-release-unsigned.apk
 
 # then, from this repo:
-cp /path/to/app-release-unsigned.apk incoming/
-./publish.sh
+./publish.sh /path/to/app-release-unsigned.apk
 ```
 
-`publish.sh` signs everything in `incoming/`, cuts the Release(s), and consumes each APK
-it signs (so `incoming/` is left empty). The new release triggers the Pages workflow to
-rebuild the index; the F-Droid client picks up the change on its next refresh.
+`publish.sh` signs each APK path you give it (one or more), cuts the Release(s), and leaves
+the source APK untouched. The new release triggers the Pages workflow to rebuild the index;
+the F-Droid client picks up the change on its next refresh.
 
 **Updating an existing app:** bump `versionCode` (and usually `versionName`) in the app's
 `build.gradle`, rebuild, and run the same two steps. The app already has a key in

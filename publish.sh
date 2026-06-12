@@ -37,7 +37,10 @@ fi
 # shellcheck disable=SC1091
 source ./secrets/secrets.env
 
-mkdir -p incoming out tmp
+mkdir -p incoming
+# Scratch space for aligned/signed APKs — created per run, auto-removed on exit.
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
 
 # ---- ingest, sign, publish --------------------------------------------------
 shopt -s nullglob
@@ -61,8 +64,8 @@ for apk in incoming/*.apk; do
       -storepass "$APP_KS_PASS" -keypass "$APP_KS_PASS" >/dev/null 2>&1
   fi
 
-  aligned="tmp/${pkg}_${vc}-aligned.apk"
-  signed="out/${pkg}_${vc}.apk"
+  aligned="$WORK/${pkg}_${vc}-aligned.apk"
+  signed="$WORK/${pkg}_${vc}.apk"
   "$ZIPALIGN" -f -p 4 "$apk" "$aligned"
   "$APKSIGNER" sign --ks secrets/keystore-apps.jks --ks-key-alias "$pkg" \
     --ks-pass "pass:$APP_KS_PASS" --key-pass "pass:$APP_KS_PASS" \

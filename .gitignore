@@ -2,11 +2,10 @@
 # the encrypted secrets.tar.gz.gpg (that blob, at the repo root, IS committed).
 secrets/
 
-# Generated / transient — these live in the GitHub Release, not in git
+# Generated / transient — these live in the GitHub Release, not in git.
+# (publish.sh's scratch dir is an auto-removed mktemp, so it's not listed here.)
 incoming/
-out/
 repo/
-tmp/
 unsigned/
 archive/
 .fdroid.*

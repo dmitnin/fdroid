@@ -18,8 +18,8 @@ Two stages, both already wired up:
    downloads every Release APK, runs `fdroid update` to build + **sign the index**
    with the repo key, and deploys `repo/` to GitHub Pages — no APKs committed to git.
 
-The index is signed by a *separate* key (`keystore.p12`, alias `index`), independent
-of the per-app keys in `keystore-apps.jks`.
+The index is signed by a *separate* key (`secrets/keystore.p12`, alias `index`),
+independent of the per-app keys in `secrets/keystore-apps.jks`.
 
 ### Publishing an app (the whole contract)
 
@@ -52,29 +52,32 @@ summary reprints this URL after each build.)
 2. Set the repo-index signing secrets from your local files:
 
    ```bash
-   gh secret set FDROID_KEYSTORE_P12_BASE64 < <(base64 -w0 keystore.p12)
-   gh secret set FDROID_KEYSTORE_PASS --body "$(sed -n 's/^keystorepass: "\(.*\)"/\1/p' config.yml)"
+   gh secret set FDROID_KEYSTORE_P12_BASE64 < <(base64 -w0 secrets/keystore.p12)
+   gh secret set FDROID_KEYSTORE_PASS --body "$(sed -n 's/^keystorepass: "\(.*\)"/\1/p' secrets/config.yml)"
    ```
 
 ## ⚠️ Back these up (gitignored, never committed)
 
-- `secrets.env` — the app keystore password.
-- `keystore-apps.jks` — **app** signing keys. Losing this breaks updates for **every**
-  app (Android refuses the new APK as a signature mismatch; users must uninstall +
-  reinstall).
-- `keystore.p12` / `config.yml` — the **index** signing key + its password. Lower
-  stakes: losing it only changes the repo fingerprint, forcing users to re-add the
-  repo. Also mirrored as the `FDROID_KEYSTORE_*` CI secrets.
+The plaintext secrets live in **`secrets/`** (the whole directory is gitignored except
+the encrypted backup blob):
 
-Backup of the **app** secrets is automated by **`signing-backup.sh`**:
-`./signing-backup.sh backup` encrypts `secrets.env` + `keystore-apps.jks` (AES256,
-passphrase-protected) into `signing-backup.tar.gz.gpg`, which *is* committed — the only
-secret left outside is the passphrase (store it in a password manager).
-`./signing-backup.sh restore` decrypts them back on a fresh clone. Re-run `backup`
-after onboarding a **new** app; routine version bumps don't change the keystore.
+- `secrets/secrets.env` — the app keystore password.
+- `secrets/keystore-apps.jks` — **app** signing keys. Losing this breaks updates for
+  **every** app (Android refuses the new APK as a signature mismatch; users must
+  uninstall + reinstall).
+- `secrets/keystore.p12` / `secrets/config.yml` — the **index** signing key + its
+  password. Lower stakes: losing it only changes the repo fingerprint, forcing users to
+  re-add the repo. Also mirrored as the `FDROID_KEYSTORE_*` CI secrets.
 
-Committed: `publish.sh`, `install_deps.sh`, `signing-backup.sh`,
-`signing-backup.tar.gz.gpg`, `.github/workflows/pages.yml`, `.gitignore`, `README.md`.
+Backup of the whole `secrets/` directory is automated by **`secrets.sh`**:
+`./secrets.sh backup` encrypts everything in `secrets/` (AES256, passphrase-protected)
+into `secrets.tar.gz.gpg` at the repo root, which *is* committed — the only secret left
+outside is the passphrase (store it in a password manager). `./secrets.sh restore`
+decrypts it back on a fresh clone. Re-run `backup` after onboarding a **new** app;
+routine version bumps don't change the keystore.
+
+Committed: `publish.sh`, `install_deps.sh`, `secrets.sh`, `secrets.tar.gz.gpg`,
+`.github/workflows/pages.yml`, `.gitignore`, `README.md`.
 
 ## Notes
 

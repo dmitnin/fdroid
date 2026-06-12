@@ -1,8 +1,6 @@
-# Secrets — back these up OUTSIDE git, never commit
-secrets.env
-keystore.p12
-keystore-apps.jks
-config.yml
+# Plaintext secrets — never commit. Back them up via ./secrets.sh, which writes
+# the encrypted secrets.tar.gz.gpg (that blob, at the repo root, IS committed).
+secrets/
 
 # Generated / transient — these live in the GitHub Release, not in git
 incoming/

@@ -29,12 +29,13 @@ for bin in gh keytool openssl "$AAPT2" "$ZIPALIGN" "$APKSIGNER"; do
 done
 
 # ---- one-time bootstrap: app-signing password -------------------------------
-if [ ! -f secrets.env ]; then
-  echo "[bootstrap] generating secrets.env (back this up!)"
-  ( umask 077; echo "APP_KS_PASS=$(openssl rand -hex 24)" > secrets.env )
+mkdir -p secrets
+if [ ! -f secrets/secrets.env ]; then
+  echo "[bootstrap] generating secrets/secrets.env (back this up!)"
+  ( umask 077; echo "APP_KS_PASS=$(openssl rand -hex 24)" > secrets/secrets.env )
 fi
 # shellcheck disable=SC1091
-source ./secrets.env
+source ./secrets/secrets.env
 
 mkdir -p incoming out tmp
 
@@ -52,10 +53,10 @@ for apk in incoming/*.apk; do
   echo "[ingest] $apk -> $pkg  vName=$vn vCode=$vc  -> release tag '$tag'"
 
   # stable per-package signing key (alias = package name)
-  if ! keytool -list -keystore keystore-apps.jks -storetype PKCS12 \
+  if ! keytool -list -keystore secrets/keystore-apps.jks -storetype PKCS12 \
         -storepass "$APP_KS_PASS" -alias "$pkg" >/dev/null 2>&1; then
     echo "[ingest]   creating new signing key for $pkg"
-    keytool -genkeypair -keystore keystore-apps.jks -storetype PKCS12 -alias "$pkg" \
+    keytool -genkeypair -keystore secrets/keystore-apps.jks -storetype PKCS12 -alias "$pkg" \
       -keyalg RSA -keysize 4096 -validity 10000 -dname "CN=$pkg" \
       -storepass "$APP_KS_PASS" -keypass "$APP_KS_PASS" >/dev/null 2>&1
   fi
@@ -63,7 +64,7 @@ for apk in incoming/*.apk; do
   aligned="tmp/${pkg}_${vc}-aligned.apk"
   signed="out/${pkg}_${vc}.apk"
   "$ZIPALIGN" -f -p 4 "$apk" "$aligned"
-  "$APKSIGNER" sign --ks keystore-apps.jks --ks-key-alias "$pkg" \
+  "$APKSIGNER" sign --ks secrets/keystore-apps.jks --ks-key-alias "$pkg" \
     --ks-pass "pass:$APP_KS_PASS" --key-pass "pass:$APP_KS_PASS" \
     --v4-signing-enabled false --out "$signed" "$aligned"
   rm -f "$aligned" "$apk"

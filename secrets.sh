@@ -1,23 +1,23 @@
 #!/usr/bin/env bash
 #
-# signing-backup.sh — encrypted backup/restore of the app-signing secrets.
+# secrets.sh — encrypted backup/restore of everything under secrets/.
 #
-#   ./signing-backup.sh backup    # encrypt secrets.env + keystore-apps.jks -> committed blob
-#   ./signing-backup.sh restore   # decrypt the blob back into place
+#   ./secrets.sh backup    # encrypt secrets/ -> committed blob
+#   ./secrets.sh restore   # decrypt the blob back into place
 #
-# The blob 'signing-backup.tar.gz.gpg' is safe to commit (AES256, passphrase-
-# protected); the raw secrets stay gitignored. Store the passphrase in your
-# password manager — it's the only secret that must live outside this repo.
+# The blob 'secrets.tar.gz.gpg' is safe to commit (AES256, passphrase-protected);
+# the raw secrets/ contents stay gitignored. Store the passphrase in your password
+# manager — it's the only secret that must live outside this repo.
 #
-# Re-run 'backup' whenever the keystore changes (i.e. after onboarding a NEW
-# app — routine version bumps don't change it).
+# Re-run 'backup' whenever the secrets change — onboarding a NEW app adds a key to
+# keystore-apps.jks; routine version bumps don't.
 #
 set -euo pipefail
 
 cd "$(dirname "$(readlink -f "$0")")"
 
-BLOB="signing-backup.tar.gz.gpg"
-FILES=(secrets.env keystore-apps.jks)
+BLOB="secrets.tar.gz.gpg"
+FILES=(secrets/secrets.env secrets/keystore-apps.jks secrets/keystore.p12 secrets/config.yml)
 
 command -v gpg >/dev/null 2>&1 || { echo "ERROR: gpg not found" >&2; exit 1; }
 
@@ -37,7 +37,7 @@ case "${1:-}" in
     echo "[backup] OK — blob contains: ${FILES[*]}"
     echo
     echo "Next: commit & push it ->"
-    echo "    git add $BLOB && git commit -m 'Refresh encrypted signing backup' && git push"
+    echo "    git add $BLOB && git commit -m 'Refresh encrypted secrets backup' && git push"
     ;;
 
   restore)

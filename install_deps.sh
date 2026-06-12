@@ -2,7 +2,7 @@
 #
 # install_deps.sh — install the host packages the publish tooling needs:
 #   - gh        (GitHub CLI — uploads signed APKs as Release assets)
-#   - gnupg     (signing-backup.sh — encrypt/decrypt the keystore backup)
+#   - gnupg     (secrets.sh — encrypt/decrypt the secrets backup)
 #   - openssl   (publish.sh bootstrap — generates the app keystore password)
 #   - a JDK     (keytool — creates the per-app signing keys)
 #

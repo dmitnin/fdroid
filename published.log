@@ -2,3 +2,4 @@
 # publish.sh appends here and pushes to main; that commit triggers the Pages
 # rebuild (a fresh commit -> a fresh Pages build version, which is what actually
 # gets served). Append-only; do not edit by hand.
+2026-06-13T16:12:03Z  gallery-v2.0-5

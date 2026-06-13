@@ -14,10 +14,16 @@
 # the icon from the APK, which release resource-shrinking can mangle).
 #
 # The APK is signed with a stable per-package key (alias = package name) and
-# uploaded to a release tagged "<slug>-v<versionName>-<versionCode>". The release
-# event triggers .github/workflows/pages.yml, which rebuilds the signed F-Droid
-# index from these Release APKs and serves it on GitHub Pages — so binaries stay
-# in Releases (no git bloat) and the F-Droid client reads the Pages index.
+# uploaded to a release tagged "<slug>-v<versionName>-<versionCode>". The script
+# then records the tag in published.log and pushes that to main; the new commit
+# triggers .github/workflows/pages.yml, which rebuilds the signed F-Droid index
+# from the Release APKs and serves it on GitHub Pages — so binaries stay in
+# Releases (no git bloat) and the F-Droid client reads the Pages index.
+#
+# The push (not the release event) is the trigger on purpose: it is a fresh
+# commit, so the Pages deploy gets a fresh build version and is actually served.
+# GitHub Pages silently dedupes deploys that reuse the same commit, which is why
+# rebuilding from Releases alone (no new commit) would not update the live site.
 #
 # The input APK is treated as read-only: it is signed into a temp dir, never
 # modified or deleted.
@@ -73,7 +79,7 @@ BT="$(ls -d "$ANDROID_HOME"/build-tools/*/ 2>/dev/null | sort -V | tail -1)"
 [ -n "$BT" ] || { echo "ERROR: no build-tools under $ANDROID_HOME/build-tools" >&2; exit 1; }
 AAPT2="${BT}aapt2"; ZIPALIGN="${BT}zipalign"; APKSIGNER="${BT}apksigner"
 
-for bin in gh keytool openssl "$AAPT2" "$ZIPALIGN" "$APKSIGNER"; do
+for bin in gh git keytool openssl "$AAPT2" "$ZIPALIGN" "$APKSIGNER"; do
   command -v "$bin" >/dev/null 2>&1 || { echo "ERROR: '$bin' not found" >&2; exit 1; }
 done
 
@@ -140,6 +146,21 @@ if [ -n "$icon" ]; then
   echo "[icon]   uploading $(basename "$iconasset") to release '$tag'"
   gh release upload "$tag" "$iconasset" --clobber --repo "$GH_REPO"
 fi
+
+# ---- trigger the Pages rebuild ----------------------------------------------
+# Record the release and push it to main. The new commit is what fires the Pages
+# workflow (see its header): a fresh commit -> a fresh Pages build version, which
+# is what actually gets served. The APK is already uploaded above, so the rebuild
+# (which pulls from Releases) sees it.
+printf '%s  %s\n' "$(date -u +%FT%TZ)" "$tag" >> published.log
+git add published.log
+git commit -q -m "publish ${tag}" -- published.log
+echo "[deploy]  pushing published.log to trigger the Pages rebuild"
+git push -q origin HEAD:main || {
+  echo "ERROR: push to main failed (local main behind?). Run 'git pull --ff-only' in" >&2
+  echo "       $(pwd) and re-run publish.sh — re-uploading the APK is idempotent." >&2
+  exit 1
+}
 
 # ---- report -----------------------------------------------------------------
 echo

@@ -13,9 +13,11 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths: ['.github/workflows/**']  # real index updates come from release events
-  release:
-    types: [published, released, edited]
+    # publish.sh appends to published.log and pushes it after uploading a
+    # release's assets; that push is a fresh commit, so the deploy gets a fresh
+    # Pages build version and is actually served (a release event reuses main's
+    # commit, which GitHub Pages dedupes away). Workflow edits redeploy too.
+    paths: ['.github/workflows/**', 'published.log']
 
 # One deploy at a time; let an in-progress run finish (don't cancel mid-deploy).
 concurrency:
@@ -156,11 +158,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deploy
         uses: actions/deploy-pages@v4
-        # GitHub Pages serves one build per "pages_build_version", which
-        # deploy-pages sends as $GITHUB_SHA. This repo rebuilds the index from
-        # Releases without new commits, so back-to-back release deploys share a
-        # SHA and every one after the first is silently ignored. The API treats
-        # pages_build_version as an opaque unique string, so make it unique per
-        # run to force each deploy to actually publish.
-        env:
-          GITHUB_SHA: ${{ github.sha }}-${{ github.run_id }}

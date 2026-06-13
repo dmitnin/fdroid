@@ -16,10 +16,15 @@ Two stages:
    in-app updates instead of treating a new version as a different app), and uploads it
    to a GitHub Release tagged `<slug>-v<versionName>-<versionCode>`. The input APK is read
    only; signing happens in an auto-removed temp dir, so nothing accumulates locally.
+   Finally it appends the tag to `published.log` and pushes that to `main` — the new
+   commit is what triggers the index rebuild (see below).
 2. **Index** — [`.github/workflows/pages.yml`](https://github.com/dmitnin/fdroid/actions/workflows/pages.yml),
-   runs in CI on every published release. It downloads every Release APK, runs
-   `fdroid update` to build and **sign the index** with the repository's index key, and
-   deploys the result to GitHub Pages. No APKs are ever committed to git.
+   runs in CI on each push of `published.log` (i.e. each publish). It downloads every
+   Release APK, runs `fdroid update` to build and **sign the index** with the repository's
+   index key, and deploys the result to GitHub Pages. No APKs are ever committed to git.
+   The trigger is a fresh commit on purpose: GitHub Pages dedupes deploys that reuse the
+   same commit, so rebuilding from Releases without a new commit would not update the live
+   site.
 
 Two independent keys are involved:
 

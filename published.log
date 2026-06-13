@@ -1,0 +1,4 @@
+# Release ledger — one line per ./publish.sh run: "<UTC timestamp>  <release tag>".
+# publish.sh appends here and pushes to main; that commit triggers the Pages
+# rebuild (a fresh commit -> a fresh Pages build version, which is what actually
+# gets served). Append-only; do not edit by hand.

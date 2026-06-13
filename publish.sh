@@ -32,15 +32,17 @@ set -euo pipefail
 
 GH_REPO="dmitnin/fdroid"
 
-# ---- parse args: optional --icon <path>, then exactly one APK path ----------
+# ---- parse args: optional --icon <path> / --force, then exactly one APK path -
 icon=""
 icon_type=""
 apk=""
+force=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --icon)   [ "$#" -ge 2 ] || { echo "ERROR: --icon requires a path" >&2; exit 2; }
               icon="$2"; shift 2 ;;
     --icon=*) icon="${1#--icon=}"; shift ;;
+    --force)  force=1; shift ;;
     -*)       echo "ERROR: unknown option: $1" >&2; exit 2 ;;
     *)        [ -z "$apk" ] || { echo "ERROR: only one APK may be given" >&2; exit 2; }
               apk="$1"; shift ;;
@@ -48,7 +50,7 @@ while [ "$#" -gt 0 ]; do
 done
 
 if [ -z "$apk" ]; then
-  echo "usage: $(basename "$0") [--icon <icon.svg|icon.png>] <app.apk>" >&2
+  echo "usage: $(basename "$0") [--icon <icon.svg|icon.png>] [--force] <app.apk>" >&2
   exit 2
 fi
 
@@ -83,6 +85,20 @@ for bin in gh git keytool openssl "$AAPT2" "$ZIPALIGN" "$APKSIGNER"; do
   command -v "$bin" >/dev/null 2>&1 || { echo "ERROR: '$bin' not found" >&2; exit 1; }
 done
 
+# ---- sync the ledger before doing anything ----------------------------------
+# Fast-forward local main to origin so the duplicate check below sees the
+# latest published.log and the final push can't be rejected for being behind.
+# --ff-only keeps this safe: if local main has diverged it stops here, before
+# any signing, rather than failing after the work is done.
+echo "[sync]   fast-forwarding main to origin"
+git fetch -q origin main
+git merge -q --ff-only FETCH_HEAD || {
+  echo "ERROR: local main has diverged from origin and can't fast-forward." >&2
+  echo "       Reconcile (e.g. 'git pull --rebase' / 'git rebase origin/main') in" >&2
+  echo "       $(pwd) and re-run publish.sh." >&2
+  exit 1
+}
+
 # ---- one-time bootstrap: app-signing password -------------------------------
 mkdir -p secrets
 if [ ! -f secrets/secrets.env ]; then
@@ -105,6 +121,20 @@ vn="$(sed -n  "s/.*versionName='\([^']*\)'.*/\1/p" <<<"$info")"
 slug="${pkg##*.}"
 tag="${slug}-v${vn}-${vc}"
 echo "[ingest] $apk -> $pkg  vName=$vn vCode=$vc  -> release tag '$tag'"
+
+# Refuse to re-publish a version already recorded in published.log. The tag
+# (slug + versionName + versionCode) is the release identity, so a matching
+# ledger line means this exact version was published before — bump the app's
+# versionCode and rebuild. Pass --force to override (e.g. to re-run after a
+# failed push, where the ledger line is committed locally but never reached
+# main; re-uploading the APK is idempotent).
+if [ -z "$force" ] && [ -f published.log ] \
+   && awk -v t="$tag" '$2 == t { found = 1 } END { exit !found }' published.log; then
+  echo "ERROR: '$tag' is already in published.log — version $vn ($vc) of $pkg" >&2
+  echo "       was published before. Bump the app's versionCode, or pass --force" >&2
+  echo "       to re-publish this exact version anyway." >&2
+  exit 1
+fi
 
 # stable per-package signing key (alias = package name)
 if ! keytool -list -keystore secrets/keystore-apps.jks -storetype PKCS12 \

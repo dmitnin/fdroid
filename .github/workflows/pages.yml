@@ -156,3 +156,11 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deploy
         uses: actions/deploy-pages@v4
+        # GitHub Pages serves one build per "pages_build_version", which
+        # deploy-pages sends as $GITHUB_SHA. This repo rebuilds the index from
+        # Releases without new commits, so back-to-back release deploys share a
+        # SHA and every one after the first is silently ignored. The API treats
+        # pages_build_version as an opaque unique string, so make it unique per
+        # run to force each deploy to actually publish.
+        env:
+          GITHUB_SHA: ${{ github.sha }}-${{ github.run_id }}

@@ -65,19 +65,49 @@ jobs:
           EOF
           chmod 600 config.yml
 
-      - name: Download signed APKs from Releases
+      - name: Download signed APKs + listing icons from Releases
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          mkdir -p repo
-          # Each app/version is its own release; pull every APK asset.
+          mkdir -p repo icon_staging
+          # Each app/version is its own release; pull every APK asset, plus any
+          # listing icon (publish.sh --icon uploads it as "<package>.png").
           for tag in $(gh release list --limit 1000 --json tagName -q '.[].tagName'); do
             echo "::group::$tag"
             gh release download "$tag" --pattern '*.apk' --dir repo --clobber || true
+            # Stage icons tagged with the release's versionCode (the tag's
+            # trailing -N) so the newest icon per package wins below.
+            vc="${tag##*-}"
+            tmpd="$(mktemp -d)"
+            if gh release download "$tag" --pattern '*.png' --dir "$tmpd" 2>/dev/null; then
+              for f in "$tmpd"/*.png; do
+                [ -e "$f" ] || continue
+                mv "$f" "icon_staging/$(basename "$f" .png).${vc}.png"
+              done
+            fi
+            rm -rf "$tmpd"
             echo "::endgroup::"
           done
           echo "APKs collected:"
           ls -la repo/*.apk || { echo "No APKs found in any release."; exit 1; }
+
+          # Place the highest-versionCode icon per package into repo metadata;
+          # fdroidserver then serves it as the app's listing icon (sidesteps APK
+          # icon extraction, which release resource-shrinking can break).
+          shopt -s nullglob
+          declare -A best_vc best_file
+          for f in icon_staging/*.png; do
+            base="$(basename "$f" .png)"   # <package>.<vc>
+            pkg="${base%.*}"; vc="${base##*.}"
+            if [ -z "${best_vc[$pkg]:-}" ] || [ "$vc" -gt "${best_vc[$pkg]}" ]; then
+              best_vc[$pkg]="$vc"; best_file[$pkg]="$f"
+            fi
+          done
+          for pkg in "${!best_file[@]}"; do
+            mkdir -p "metadata/${pkg}/en-US"
+            cp "${best_file[$pkg]}" "metadata/${pkg}/en-US/icon.png"
+            echo "icon: $pkg <- ${best_file[$pkg]}"
+          done
 
       - name: Build & sign the index
         run: |

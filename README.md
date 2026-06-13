@@ -10,8 +10,8 @@ the ordinary **F-Droid client**, pointed at the Pages index.
 
 Two stages:
 
-1. **Publish** — `./publish.sh <app.apk> …`, run locally. For each APK path you pass it,
-   it reads the package name + version, signs it with a **stable per-package key**
+1. **Publish** — `./publish.sh <app.apk>`, run locally. It reads the package name +
+   version, signs the APK with a **stable per-package key**
    (alias = package name — that stable identity is what lets the F-Droid client offer
    in-app updates instead of treating a new version as a different app), and uploads it
    to a GitHub Release tagged `<slug>-v<versionName>-<versionCode>`. The input APK is read
@@ -159,9 +159,9 @@ point `publish.sh` at it:
 ./publish.sh /path/to/app-release-unsigned.apk
 ```
 
-`publish.sh` signs each APK path you give it (one or more), cuts the Release(s), and leaves
-the source APK untouched. The new release triggers the Pages workflow to rebuild the index;
-the F-Droid client picks up the change on its next refresh.
+`publish.sh` signs the APK you give it, cuts the Release, and leaves the source APK
+untouched. The new release triggers the Pages workflow to rebuild the index; the F-Droid
+client picks up the change on its next refresh.
 
 **Updating an existing app:** bump `versionCode` (and usually `versionName`) in the app's
 `build.gradle`, rebuild, and run the same two steps. The app already has a key in
@@ -172,6 +172,23 @@ seen, `publish.sh` generates a fresh per-package key (alias = the package name) 
 `keystore-apps.jks`. Optionally add `metadata/<package>.yml` to curate the listing (name,
 summary, links); without it, CI auto-stubs minimal metadata from the APK on each build.
 
+**App icon (`--icon`):** fdroidserver locates an APK's launcher icon by filename
+(`res/<density>/ic_launcher.png`), which release resource-shrinking renames to opaque
+paths — so icons extracted from the APK often come out blank. Supply the icon explicitly
+instead:
+
+```bash
+./publish.sh --icon /path/to/app_icon.svg /path/to/app-release-unsigned.apk
+```
+
+`--icon` takes an **SVG** (rendered to a 512px PNG here via `rsvg-convert`) or a ready
+**PNG**. It is uploaded to the release as `<package>.png`; the Pages workflow drops it into
+`metadata/<package>/en-US/icon.png`, which fdroidserver serves as the listing icon — no app
+change and no commit to git, just like the APKs. The icon attaches to the **package**, so it
+also fixes the icon for already-published versions, and you only need to re-supply it when the
+artwork actually changes (the newest version that carries one wins). `release_to_fdroid.sh`
+in an app project can pass its own `design/app_icon.svg` automatically.
+
 ### What can go stale after publishing
 
 - **`secrets.tar.gz.gpg`** — only when `keystore-apps.jks` changes, i.e. after
@@ -179,3 +196,43 @@ summary, links); without it, CI auto-stubs minimal metadata from the APK on each
   Routine version bumps never touch the keystore, so they need no re-backup.
 - Editing `secrets/config.yml` (e.g. the repo name) also drifts the blob; re-run `backup`
   if you want it current. `config.yml` is reconstructable, so this is optional.
+
+## Troubleshooting
+
+### A new version doesn't appear in the F-Droid client
+
+The index is rebuilt from scratch on every release event, so a missing version almost always
+means the **deploy didn't actually publish a fresh index**, not that the build was wrong.
+
+- **Never re-run *only* the failed `deploy` job.** `actions/deploy-pages` redeploys the build
+  artifact attached to that run, and a stale run (e.g. an earlier push-to-`main` build) carries
+  an index built *before* the new release existed. The deploy goes green but republishes old
+  content. Instead force a fresh **`build` + `deploy`** by either re-running the **whole**
+  workflow, dispatching one (`gh workflow run pages.yml`), or re-running `publish.sh` against
+  the APK — a re-upload to an existing release still fires a `release` event and rebuilds the
+  index from every Release APK.
+- **Verify the live index, not the run status.** The served index bakes in its build time, so
+  you can confirm freshness directly:
+
+  ```bash
+  curl -fsSL https://dmitnin.github.io/fdroid/repo/entry.json | jq '.timestamp/1000|todate'
+  curl -fsSL https://dmitnin.github.io/fdroid/repo/index-v2.json \
+    | jq -r '.packages|to_entries[]|"\(.key): \([.value.versions[].manifest.versionCode]|sort)"'
+  ```
+
+  Pages sits behind a CDN with a 10-minute TTL; a deploy purges it, but allow a minute for
+  propagation and cache-bust with a `?z=$(date +%s)` query if in doubt.
+- **On the device**, pull-to-refresh the repo (Settings → Repositories → the repo) — the client
+  only re-reads the index on refresh.
+
+### "Not allowed to deploy to github-pages due to environment protection rules"
+
+Release events run the workflow against the **release tag** (`<slug>-v…`), not a branch. The
+`github-pages` environment's deployment policy must therefore allow those tags, or the `deploy`
+job is blocked while `build` still passes. The policy is set to allow the `main` branch **and**
+the tag pattern `*-v*`; if it's ever reset, re-add the tag rule:
+
+```bash
+gh api -X POST repos/dmitnin/fdroid/environments/github-pages/deployment-branch-policies \
+  -f name='*-v*' -f type='tag'
+```

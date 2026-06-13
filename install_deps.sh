@@ -5,6 +5,8 @@
 #   - gnupg     (secrets.sh — encrypt/decrypt the secrets backup)
 #   - openssl   (publish.sh bootstrap — generates the app keystore password)
 #   - a JDK     (keytool — creates the per-app signing keys)
+#   - rsvg-convert (librsvg2-bin — publish.sh --icon renders an app's icon .svg
+#                   to the .png it uploads as the F-Droid listing icon)
 #
 # The F-Droid index itself is built in CI (fdroidserver runs in the GitHub Actions
 # workflow, not here), so it is intentionally NOT installed locally. APK signing
@@ -23,8 +25,8 @@ fi
 echo "==> Updating package lists"
 sudo apt-get update
 
-echo "==> Installing openssl, gnupg, JDK (keytool)"
-sudo apt-get install -y openssl gnupg default-jdk-headless
+echo "==> Installing openssl, gnupg, JDK (keytool), rsvg-convert (SVG->PNG)"
+sudo apt-get install -y openssl gnupg default-jdk-headless librsvg2-bin
 
 echo "==> Installing GitHub CLI (gh)"
 if apt-cache show gh >/dev/null 2>&1; then
@@ -48,6 +50,7 @@ echo "==> Versions"
 gh --version | head -1 || echo "WARNING: gh not on PATH"
 command -v keytool >/dev/null 2>&1 && echo "keytool: present" || echo "WARNING: keytool not on PATH"
 gpg --version | head -1 || echo "WARNING: gpg not on PATH"
+rsvg-convert --version | head -1 || echo "WARNING: rsvg-convert not on PATH"
 
 echo
 echo "Heads up: APK signing needs the Android SDK build-tools (aapt2/zipalign/"
